@@ -144,8 +144,6 @@ newStagger opts = do
             [type_, data_] <- liftIO $ ZMQ.receiveMulti pair
             case type_ of
               "report_all" -> do
-                let data_' = Msg.unpack data_ :: Msg.Object
-                liftIO $ print data_'
                 let ReportAll ts = Msg.unpack data_
 
                 prevCummulatives <- get
@@ -167,7 +165,6 @@ newStagger opts = do
                       (objectText "Dists", makeDists dists')
                     ]
                 liftIO $ sendMulti pair $ NE.fromList ["stats_complete", BL.toStrict $ Msg.pack reply]
-                liftIO $ print ("report_all", reply)
               "pair:shutdown" -> do
                 liftIO $ print ("shutdown")
                 liftIO $ ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
