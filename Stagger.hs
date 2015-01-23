@@ -5,6 +5,8 @@ module Stagger (
   Stagger,
   newStagger,
   singleton,
+  MetricName,
+  Count(..),
   registerCount,
   registerCounts,
   addDist,
@@ -30,8 +32,9 @@ import System.ZMQ3 as ZMQ
 import qualified Data.MessagePack as Msg
 
 import Megabus.ObjectConvertible
+import Megabus.DataModel.Util (mapMaybeHashMap)
 
-type Name = T.Text
+type MetricName = T.Text
 
 data StaggerOpts = StaggerOpts { registrationAddr :: String }
 
@@ -45,12 +48,24 @@ singleton x = (Sum 1, Min x, Max x, Sum x, Sum $ x^2)
 
 newtype DistValues =
   DistValues {
-    unDistValues :: (HM.HashMap Name DistValue)
+    unDistValues :: (HM.HashMap MetricName DistValue)
   }
+
+data Count =
+  Cummulative Integer |
+  Current Double
+
+getCummulative :: Count -> Maybe Integer
+getCummulative (Cummulative x) = Just x
+getCummulative _ = Nothing
+
+getCurrent :: Count -> Maybe Double
+getCurrent (Current x) = Just x
+getCurrent _ = Nothing
 
 data Stagger =
   Stagger
-    !(TVar (IO (HM.HashMap Name Integer)))
+    !(TVar (IO (HM.HashMap MetricName Count)))
     !(TVar DistValues)
 
 instance Monoid DistValues where
@@ -80,17 +95,17 @@ instance Msg.Packable ReportAll where
 instance Msg.Unpackable ReportAll where
   get = objGet
 
-makeCounts :: HM.HashMap Name Integer -> Msg.Object
+makeCounts :: HM.HashMap MetricName Double -> Msg.Object
 makeCounts =
   toObj .
   map (uncurry makeCount) .
   HM.toList
  where
-  makeCount :: Name -> Integer -> Msg.Object
+  makeCount :: MetricName -> Double -> Msg.Object
   makeCount name value =
     Msg.ObjectMap [
       (objectText "Name", toObj name),
-      (objectText "Count", Msg.ObjectDouble $ fromIntegral value)
+      (objectText "Count", toObj value)
     ]
 
 makeDists :: DistValues -> Msg.Object
@@ -100,7 +115,7 @@ makeDists =
   HM.toList .
   unDistValues
  where
-  makeDist :: Name -> DistValue -> Msg.Object
+  makeDist :: MetricName -> DistValue -> Msg.Object
   makeDist name (Sum weight, Min min, Max max, Sum sum, Sum sum_2) =
     Msg.ObjectMap [
       (objectText "Name", toObj name),
@@ -132,10 +147,14 @@ newStagger opts = do
                 liftIO $ print data_'
                 let ReportAll ts = Msg.unpack data_
 
-                prevCountValues <- get
+                prevCummulatives <- get
                 newCountValues <- liftIO $ join $ atomically $ readTVar counts
-                put $ HM.union newCountValues prevCountValues
-                let counts = HM.intersectionWith (-) newCountValues prevCountValues
+                let newCummulatives = mapMaybeHashMap getCummulative newCountValues
+                put $ HM.union newCummulatives prevCummulatives
+
+                let diff = HM.intersectionWith (-) newCummulatives prevCummulatives
+                let newCurrents = mapMaybeHashMap getCurrent newCountValues
+                let counts = HM.union newCurrents $ HM.map fromIntegral diff
 
                 dists' <- liftIO $ atomically $ readTVar dists <* writeTVar dists mempty
 
@@ -157,14 +176,14 @@ newStagger opts = do
 
   return $ Stagger counts dists
 
-registerCount :: Stagger -> Name -> IO Integer -> IO ()
+registerCount :: Stagger -> MetricName -> IO Count -> IO ()
 registerCount stagger name op =
   registerCounts stagger $ HM.singleton name <$> op
 
-registerCounts :: Stagger -> IO (HM.HashMap Name Integer) -> IO ()
+registerCounts :: Stagger -> IO (HM.HashMap MetricName Count) -> IO ()
 registerCounts (Stagger counts _) op = do
   atomically $ modifyTVar' counts (\op' -> HM.union <$> op <*> op')
 
-addDist :: Stagger -> Name -> DistValue -> IO ()
+addDist :: Stagger -> MetricName -> DistValue -> IO ()
 addDist (Stagger _ dists) name value = do
   atomically $ modifyTVar' dists $ mappend $ DistValues $ HM.singleton name value
