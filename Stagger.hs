@@ -10,6 +10,7 @@ module Stagger (
   registerCount,
   registerCounts,
   addDist,
+  addSingleton,
 ) where
 
 import Data.String (fromString)
@@ -187,3 +188,6 @@ registerCounts (Stagger counts _) op = do
 addDist :: Stagger -> MetricName -> DistValue -> IO ()
 addDist (Stagger _ dists) name value = do
   atomically $ modifyTVar' dists $ mappend $ DistValues $ HM.singleton name value
+
+addSingleton :: Stagger -> MetricName -> Double -> IO ()
+addSingleton stagger name = addDist stagger name . singleton
