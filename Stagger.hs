@@ -7,7 +7,10 @@ module Stagger (
   singleton,
   MetricName,
   Count(..),
-  registerCounter,
+  newRateCounter,
+  newCurrentCounter,
+  registerRateCounter,
+  registerCurrentCounter,
   registerCount,
   registerCounts,
   addDist,
@@ -176,9 +179,25 @@ newStagger opts = do
 
   return $ Stagger counts dists
 
-registerCounter :: Stagger -> MetricName -> Counter -> IO ()
-registerCounter stagger name counter =
+newRateCounter :: Stagger -> MetricName -> IO Counter
+newRateCounter stagger name = do
+  counter <- newCounter
+  registerRateCounter stagger name counter
+  return counter
+
+newCurrentCounter :: Stagger -> MetricName -> IO Counter
+newCurrentCounter stagger name = do
+  counter <- newCounter
+  registerCurrentCounter stagger name counter
+  return counter
+
+registerRateCounter :: Stagger -> MetricName -> Counter -> IO ()
+registerRateCounter stagger name counter =
   registerCount stagger name (Cummulative <$> readCounter counter)
+
+registerCurrentCounter :: Stagger -> MetricName -> Counter -> IO ()
+registerCurrentCounter stagger name counter =
+  registerCount stagger name ((Current . fromIntegral) <$> readCounter counter)
 
 registerCount :: Stagger -> MetricName -> IO Count -> IO ()
 registerCount stagger name op =
