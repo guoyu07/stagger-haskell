@@ -7,6 +7,7 @@ module Stagger (
   singleton,
   MetricName,
   Count(..),
+  registerCounter,
   registerCount,
   registerCounts,
   addDist,
@@ -33,6 +34,7 @@ import System.ZMQ3 as ZMQ
 import qualified Data.MessagePack as Msg
 
 import Megabus.ObjectConvertible
+import Megabus.Counter
 import Megabus.DataModel.Util (mapMaybeHashMap)
 
 type MetricName = T.Text
@@ -173,6 +175,10 @@ newStagger opts = do
                 liftIO $ print ("unknown", type_, data_')
 
   return $ Stagger counts dists
+
+registerCounter :: Stagger -> MetricName -> Counter -> IO ()
+registerCounter stagger name counter =
+  registerCount stagger name (Cummulative <$> readCounter counter)
 
 registerCount :: Stagger -> MetricName -> IO Count -> IO ()
 registerCount stagger name op =
