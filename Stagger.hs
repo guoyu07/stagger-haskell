@@ -4,18 +4,19 @@ module Stagger (
   defaultOpts,
   Stagger,
   newStagger,
-  singleton,
   MetricName,
   Count(..),
+  registerCounts,
+  Counter,
   newRateCounter,
   newCurrentCounter,
-  registerRateCounter,
-  registerCurrentCounter,
-  registerCount,
-  registerCounts,
-  addDist,
+  incCounter,
+  Dist,
+  newDistMetric,
   addSingleton,
 ) where
+
+import Prelude hiding (sequence)
 
 import Data.String (fromString)
 import qualified Data.ByteString.Lazy as BL
@@ -23,6 +24,7 @@ import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
 import Data.Monoid (Monoid(..))
+import Data.Traversable (sequence)
 import Data.Semigroup (Semigroup(..), Sum(..), Max(..), Min(..))
 
 import Control.Applicative ((<$>), (<*>), (<*))
@@ -37,8 +39,10 @@ import System.ZMQ3 as ZMQ
 import qualified Data.MessagePack as Msg
 
 import Megabus.ObjectConvertible
-import Megabus.Counter
 import Megabus.DataModel.Util (mapMaybeHashMap)
+
+import Stagger.Counter
+import Stagger.Dist
 
 type MetricName = T.Text
 
@@ -46,16 +50,6 @@ data StaggerOpts = StaggerOpts { registrationAddr :: String }
 
 defaultOpts :: StaggerOpts
 defaultOpts = StaggerOpts { registrationAddr = "tcp://127.0.0.1:5867" }
-
-type DistValue = (Sum Double, Min Double, Max Double, Sum Double, Sum Double)
-
-singleton :: Double -> DistValue
-singleton x = (Sum 1, Min x, Max x, Sum x, Sum $ x^2)
-
-newtype DistValues =
-  DistValues {
-    unDistValues :: (HM.HashMap MetricName DistValue)
-  }
 
 data Count =
   Cummulative Integer |
@@ -72,14 +66,7 @@ getCurrent _ = Nothing
 data Stagger =
   Stagger
     !(TVar (IO (HM.HashMap MetricName Count)))
-    !(TVar DistValues)
-
-instance Monoid DistValues where
-  mempty = DistValues HM.empty
-
-  mappend (DistValues a) (DistValues b) =
-    DistValues
-      (HM.unionWith (<>) a b)
+    !(TVar (HM.HashMap MetricName (IO (Maybe DistValue))))
 
 data ReportAll =
   ReportAll
@@ -114,12 +101,11 @@ makeCounts =
       (objectText "Count", toObj value)
     ]
 
-makeDists :: DistValues -> Msg.Object
+makeDists :: HM.HashMap MetricName DistValue -> Msg.Object
 makeDists =
   toObj .
   map (uncurry makeDist) .
-  HM.toList .
-  unDistValues
+  HM.toList
  where
   makeDist :: MetricName -> DistValue -> Msg.Object
   makeDist name (Sum weight, Min min, Max max, Sum sum, Sum sum_2) =
@@ -160,14 +146,16 @@ newStagger opts = do
                 let newCurrents = mapMaybeHashMap getCurrent newCountValues
                 let counts = HM.union newCurrents $ HM.map fromIntegral diff
 
-                dists' <- liftIO $ atomically $ readTVar dists <* writeTVar dists mempty
+                dists' <- liftIO $ atomically $ readTVar dists
+                dists'' <- liftIO $ sequence dists'
+                let dists''' = mapMaybeHashMap id dists''
 
                 let
                   reply =
                     Msg.ObjectMap [
                       (objectText "Timestamp", toObj ts),
                       (objectText "Counts", makeCounts counts),
-                      (objectText "Dists", makeDists dists')
+                      (objectText "Dists", makeDists dists''')
                     ]
                 liftIO $ sendMulti pair $ NE.fromList ["stats_complete", BL.toStrict $ Msg.pack reply]
               "pair:shutdown" -> do
@@ -179,24 +167,30 @@ newStagger opts = do
 
   return $ Stagger counts dists
 
+newDistMetric :: Stagger -> MetricName -> IO Dist
+newDistMetric (Stagger _ dists) name = do
+  dist <- newDist
+  atomically $ modifyTVar' dists $ HM.insert name $ getAndReset dist
+  return dist
+
 newRateCounter :: Stagger -> MetricName -> IO Counter
 newRateCounter stagger name = do
   counter <- newCounter
-  registerRateCounter stagger name counter
+  registerRateCount stagger name counter
   return counter
 
 newCurrentCounter :: Stagger -> MetricName -> IO Counter
 newCurrentCounter stagger name = do
   counter <- newCounter
-  registerCurrentCounter stagger name counter
+  registerCurrentCount stagger name counter
   return counter
 
-registerRateCounter :: Stagger -> MetricName -> Counter -> IO ()
-registerRateCounter stagger name counter =
+registerRateCount :: Stagger -> MetricName -> Counter -> IO ()
+registerRateCount stagger name counter =
   registerCount stagger name (Cummulative <$> readCounter counter)
 
-registerCurrentCounter :: Stagger -> MetricName -> Counter -> IO ()
-registerCurrentCounter stagger name counter =
+registerCurrentCount :: Stagger -> MetricName -> Counter -> IO ()
+registerCurrentCount stagger name counter =
   registerCount stagger name ((Current . fromIntegral) <$> readCounter counter)
 
 registerCount :: Stagger -> MetricName -> IO Count -> IO ()
@@ -206,10 +200,3 @@ registerCount stagger name op =
 registerCounts :: Stagger -> IO (HM.HashMap MetricName Count) -> IO ()
 registerCounts (Stagger counts _) op = do
   atomically $ modifyTVar' counts (\op' -> HM.union <$> op <*> op')
-
-addDist :: Stagger -> MetricName -> DistValue -> IO ()
-addDist (Stagger _ dists) name value = do
-  atomically $ modifyTVar' dists $ mappend $ DistValues $ HM.singleton name value
-
-addSingleton :: Stagger -> MetricName -> Double -> IO ()
-addSingleton stagger name = addDist stagger name . singleton
