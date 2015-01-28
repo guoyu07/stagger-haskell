@@ -108,7 +108,7 @@ makeDists =
   HM.toList
  where
   makeDist :: MetricName -> DistValue -> Msg.Object
-  makeDist name (Sum weight, Min min, Max max, Sum sum, Sum sum_2) =
+  makeDist name (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
     Msg.ObjectMap [
       (objectText "Name", toObj name),
       (objectText "Dist", toObj [weight, min, max, sum, sum_2])
