@@ -1,0 +1,22 @@
+#!/bin/bash
+#
+# Installs the required system dependencies
+#
+
+set -e
+
+case "$(uname)" in
+  Darwin)
+    brew install ghc cabal-install msgpack
+    ;;
+  Linux)
+    # Assuming it's Ubuntu
+    # TODO: install ghc ?
+    sudo apt-get update -q
+    sudo apt-get install -qy libmsgpack-dev zlib1g-dev
+    ;;
+  *)
+    echo "Unknown OS" 2>&1
+    exit 1
+    ;;
+esac

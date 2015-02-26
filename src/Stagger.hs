@@ -30,7 +30,7 @@ import Data.Semigroup (Semigroup(..), Sum(..), Max(..), Min(..))
 import Control.Applicative ((<$>), (<*>), (<*))
 import Control.Monad (forever, join)
 import Control.Monad.Trans (lift, liftIO)
-import Control.Monad.Trans.State (evalStateT, get, put)
+import Control.Monad.Trans.State
 import Control.Concurrent
 import Control.Concurrent.STM
 
@@ -38,8 +38,9 @@ import System.ZMQ3 as ZMQ
 
 import qualified Data.MessagePack as Msg
 
-import Megabus.ObjectConvertible
-import Megabus.DataModel.Util (mapMaybeHashMap)
+-- import Megabus.ObjectConvertible
+import Stagger.Util (mapMaybeHashMap)
+import Stagger.ObjectConvertible
 
 import Stagger.Counter
 import Stagger.Dist
