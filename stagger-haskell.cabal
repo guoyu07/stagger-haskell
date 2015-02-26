@@ -15,7 +15,7 @@ library
                        blaze-builder,
                        bytestring,
                        hashable,
-                       msgpack,
+                       msgpack >= 0.7,
                        mtl,
                        stm,
                        text,
