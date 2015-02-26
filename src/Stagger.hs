@@ -26,6 +26,8 @@ import qualified Data.HashMap.Strict as HM
 import Data.Monoid (Monoid(..))
 import Data.Traversable (sequence)
 import Data.Semigroup (Semigroup(..), Sum(..), Max(..), Min(..))
+import qualified Data.MessagePack as Msg
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 
 import Control.Applicative ((<$>), (<*>), (<*))
 import Control.Monad (forever, join)
@@ -36,11 +38,7 @@ import Control.Concurrent.STM
 
 import System.ZMQ3 as ZMQ
 
-import qualified Data.MessagePack as Msg
-
--- import Megabus.ObjectConvertible
 import Stagger.Util (mapMaybeHashMap)
-import Stagger.ObjectConvertible
 
 import Stagger.Counter
 import Stagger.Dist
@@ -73,46 +71,71 @@ data ReportAll =
   ReportAll
     !Integer
 
-instance ObjectConvertible ReportAll where
-  fromObj obj = do
-    m <- getMap obj
-    ReportAll <$> key "Timestamp" m
+objectText :: T.Text -> Msg.Object
+objectText = Msg.ObjectRAW . encodeUtf8
 
-  toObj (ReportAll ts) =
-    Msg.ObjectMap [
-      (objectText "Timestamp", toObj ts)
-    ]
+toObjInteger :: Integer -> Msg.Object
+toObjInteger =
+  Msg.ObjectInteger . fromInteger
 
 instance Msg.Packable ReportAll where
-  from = objFrom
+  from =
+    Msg.from . toObjReportAll
+   where
+    toObjReportAll :: ReportAll -> Msg.Object
+    toObjReportAll (ReportAll ts) =
+      Msg.ObjectMap [
+        (objectText "Timestamp", toObjInteger ts)
+      ]
 
 instance Msg.Unpackable ReportAll where
-  get = objGet
+  get =
+    Msg.get >>= (maybe (fail "failed to unpack") return . fromObjReportAll)
+   where
+    fromObjReportAll :: Msg.Object -> Maybe ReportAll
+    fromObjReportAll obj = do
+      m <- getMap obj
+      ReportAll <$> (fromObjInteger =<< lookup "Timestamp" m)
+
+    fromObjInteger :: Msg.Object -> Maybe Integer
+    fromObjInteger (Msg.ObjectInteger i) = Just $ toInteger i
+    fromObjInteger _ = Nothing
+
+    getMap :: Msg.Object -> Maybe [(T.Text, Msg.Object)]
+    getMap (Msg.ObjectMap elems) =
+      mapM (\(k, v) -> do
+        k' <- fromObjText k
+        return (k', v)) elems
+    getMap _ = Nothing
+
+    fromObjText :: Msg.Object -> Maybe T.Text
+    fromObjText (Msg.ObjectRAW r) = Just (decodeUtf8 r)
+    fromObjText _ = Nothing
 
 makeCounts :: HM.HashMap MetricName Double -> Msg.Object
 makeCounts =
-  toObj .
+  Msg.ObjectArray .
   map (uncurry makeCount) .
   HM.toList
  where
   makeCount :: MetricName -> Double -> Msg.Object
   makeCount name value =
     Msg.ObjectMap [
-      (objectText "Name", toObj name),
-      (objectText "Count", toObj value)
+      (objectText "Name", objectText name),
+      (objectText "Count", Msg.ObjectDouble value)
     ]
 
 makeDists :: HM.HashMap MetricName DistValue -> Msg.Object
 makeDists =
-  toObj .
+  Msg.ObjectArray .
   map (uncurry makeDist) .
   HM.toList
  where
   makeDist :: MetricName -> DistValue -> Msg.Object
   makeDist name (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
     Msg.ObjectMap [
-      (objectText "Name", toObj name),
-      (objectText "Dist", toObj [weight, min, max, sum, sum_2])
+      (objectText "Name", objectText name),
+      (objectText "Dist", Msg.ObjectArray $ map Msg.ObjectDouble [weight, min, max, sum, sum_2])
     ]
 
 newStagger :: StaggerOpts -> IO Stagger
@@ -154,7 +177,7 @@ newStagger opts = do
                 let
                   reply =
                     Msg.ObjectMap [
-                      (objectText "Timestamp", toObj ts),
+                      (objectText "Timestamp", toObjInteger ts),
                       (objectText "Counts", makeCounts counts),
                       (objectText "Dists", makeDists dists''')
                     ]
