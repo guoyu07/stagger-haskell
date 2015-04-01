@@ -168,7 +168,9 @@ newStagger opts = do
           "pair:shutdown" -> do
             liftIO $ print "shutdown"
             liftIO $ ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
-          _ -> liftIO $ print ("unknown", type_, data_)
+          _ -> do
+            let data_' = either error id (decode data_) :: Msg.Object
+            liftIO $ print ("unknown", type_, data_')
 
   return $ Stagger counts dists
 
