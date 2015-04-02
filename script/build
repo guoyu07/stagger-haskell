@@ -2,9 +2,7 @@
 
 cd "$(dirname "$0")/.."
 
-git submodule update --init
 cabal sandbox init
-cabal sandbox add-source vendor/msgpack-haskell/msgpack
 cabal update
 cabal install --enable-tests --only-dependencies -j
 cabal configure --enable-tests

@@ -18,21 +18,22 @@ module Stagger (
 
 import Prelude hiding (sequence)
 
+import Data.Int
 import Data.String (fromString)
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map as M
+import Data.Serialize (Serialize, Get, encode, decode, get, put)
 import Data.Monoid (Monoid(..))
 import Data.Traversable (sequence)
-import Data.Semigroup (Semigroup(..), Sum(..), Max(..), Min(..))
+import Data.Semigroup (Sum(..), Max(..), Min(..))
 import qualified Data.MessagePack as Msg
-import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 
-import Control.Applicative ((<$>), (<*>), (<*))
+import Control.Applicative ((<$>), (<*>))
 import Control.Monad (forever, join)
-import Control.Monad.Trans (lift, liftIO)
-import Control.Monad.Trans.State
+import Control.Monad.Trans (liftIO)
+import qualified Control.Monad.Trans.State as State
 import Control.Concurrent
 import Control.Concurrent.STM
 
@@ -69,48 +70,32 @@ data Stagger =
 
 data ReportAll =
   ReportAll
-    !Integer
+    !Int64
 
-objectText :: T.Text -> Msg.Object
-objectText = Msg.ObjectRAW . encodeUtf8
-
-toObjInteger :: Integer -> Msg.Object
-toObjInteger =
-  Msg.ObjectInteger . fromInteger
-
-instance Msg.Packable ReportAll where
-  from =
-    Msg.from . toObjReportAll
-   where
-    toObjReportAll :: ReportAll -> Msg.Object
-    toObjReportAll (ReportAll ts) =
-      Msg.ObjectMap [
-        (objectText "Timestamp", toObjInteger ts)
-      ]
-
-instance Msg.Unpackable ReportAll where
-  get =
-    Msg.get >>= (maybe (fail "failed to unpack") return . fromObjReportAll)
+instance Serialize ReportAll where
+  get = (get :: Get Msg.Object) >>= (maybe (fail "failed to unpack") return . fromObjReportAll)
    where
     fromObjReportAll :: Msg.Object -> Maybe ReportAll
-    fromObjReportAll obj = do
-      m <- getMap obj
-      ReportAll <$> (fromObjInteger =<< lookup "Timestamp" m)
+    fromObjReportAll m = ReportAll <$> (fromObjInteger =<< lookup "Timestamp" =<< getMap m)
 
-    fromObjInteger :: Msg.Object -> Maybe Integer
-    fromObjInteger (Msg.ObjectInteger i) = Just $ toInteger i
+    fromObjInteger :: Msg.Object -> Maybe Int64
+    fromObjInteger (Msg.ObjectInt i) = Just i
     fromObjInteger _ = Nothing
 
     getMap :: Msg.Object -> Maybe [(T.Text, Msg.Object)]
     getMap (Msg.ObjectMap elems) =
       mapM (\(k, v) -> do
         k' <- fromObjText k
-        return (k', v)) elems
+        return (k', v)) (M.toList elems)
     getMap _ = Nothing
 
     fromObjText :: Msg.Object -> Maybe T.Text
-    fromObjText (Msg.ObjectRAW r) = Just (decodeUtf8 r)
+    fromObjText (Msg.ObjectString r) = Just r
     fromObjText _ = Nothing
+
+  put (ReportAll r) = put $ Msg.ObjectMap $ M.fromList [
+      (Msg.ObjectString "Timestamp", Msg.ObjectInt r)
+    ]
 
 makeCounts :: HM.HashMap MetricName Double -> Msg.Object
 makeCounts =
@@ -120,9 +105,9 @@ makeCounts =
  where
   makeCount :: MetricName -> Double -> Msg.Object
   makeCount name value =
-    Msg.ObjectMap [
-      (objectText "Name", objectText name),
-      (objectText "Count", Msg.ObjectDouble value)
+    Msg.ObjectMap $ M.fromList [
+      (Msg.ObjectString "Name", Msg.ObjectString name),
+      (Msg.ObjectString "Count", Msg.ObjectDouble value)
     ]
 
 makeDists :: HM.HashMap MetricName DistValue -> Msg.Object
@@ -133,9 +118,9 @@ makeDists =
  where
   makeDist :: MetricName -> DistValue -> Msg.Object
   makeDist name (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
-    Msg.ObjectMap [
-      (objectText "Name", objectText name),
-      (objectText "Dist", Msg.ObjectArray $ map Msg.ObjectDouble [weight, min, max, sum, sum_2])
+    Msg.ObjectMap $ M.fromList [
+      (Msg.ObjectString "Name", Msg.ObjectString name),
+      (Msg.ObjectString "Dist", Msg.ObjectArray $ map Msg.ObjectDouble [weight, min, max, sum, sum_2])
     ]
 
 newStagger :: StaggerOpts -> IO Stagger
@@ -143,51 +128,49 @@ newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
 
-  forkIO $ do
-    ZMQ.withContext $ \context -> do
-      ZMQ.withSocket context ZMQ.Pair $ \pair -> do
-        ZMQ.bind pair "tcp://127.0.0.1:*"
-        pairEndpoint <- takeWhile (/= '\NUL') <$> ZMQ.lastEndpoint pair
+  forkIO $ ZMQ.withContext $ \context ->
+    ZMQ.withSocket context ZMQ.Pair $ \pair -> do
+      ZMQ.bind pair "tcp://127.0.0.1:*"
+      pairEndpoint <- takeWhile (/= '\NUL') <$> ZMQ.lastEndpoint pair
 
-        registration <- ZMQ.socket context ZMQ.Push
-        ZMQ.connect registration $ registrationAddr opts
+      registration <- ZMQ.socket context ZMQ.Push
+      ZMQ.connect registration $ registrationAddr opts
 
-        ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
+      ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
 
-        flip evalStateT HM.empty $ do
-          forever $ do
-            [type_, data_] <- liftIO $ ZMQ.receiveMulti pair
-            case type_ of
-              "report_all" -> do
-                let ReportAll ts = Msg.unpack data_
+      flip State.evalStateT HM.empty $ forever $ do
+        [type_, data_] <- liftIO $ ZMQ.receiveMulti pair
+        case type_ of
+          "report_all" -> do
+            let ReportAll ts = either error id (decode data_)
 
-                prevCummulatives <- get
-                newCountValues <- liftIO $ join $ atomically $ readTVar counts
-                let newCummulatives = mapMaybeHashMap getCummulative newCountValues
-                put $ HM.union newCummulatives prevCummulatives
+            prevCummulatives <- State.get
+            newCountValues <- liftIO $ join $ atomically $ readTVar counts
+            let newCummulatives = mapMaybeHashMap getCummulative newCountValues
+            State.put $ HM.union newCummulatives prevCummulatives
 
-                let diff = HM.intersectionWith (-) newCummulatives prevCummulatives
-                let newCurrents = mapMaybeHashMap getCurrent newCountValues
-                let counts = HM.union newCurrents $ HM.map fromIntegral diff
+            let diff = HM.intersectionWith (-) newCummulatives prevCummulatives
+            let newCurrents = mapMaybeHashMap getCurrent newCountValues
+            let counts = HM.union newCurrents $ HM.map fromIntegral diff
 
-                dists' <- liftIO $ atomically $ readTVar dists
-                dists'' <- liftIO $ sequence dists'
-                let dists''' = mapMaybeHashMap id dists''
+            dists' <- liftIO $ atomically $ readTVar dists
+            dists'' <- liftIO $ sequence dists'
+            let dists''' = mapMaybeHashMap id dists''
 
-                let
-                  reply =
-                    Msg.ObjectMap [
-                      (objectText "Timestamp", toObjInteger ts),
-                      (objectText "Counts", makeCounts counts),
-                      (objectText "Dists", makeDists dists''')
-                    ]
-                liftIO $ sendMulti pair $ NE.fromList ["stats_complete", BL.toStrict $ Msg.pack reply]
-              "pair:shutdown" -> do
-                liftIO $ print ("shutdown")
-                liftIO $ ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
-              _ -> do
-                let data_' = Msg.unpack data_ :: Msg.Object
-                liftIO $ print ("unknown", type_, data_')
+            let
+              reply =
+                Msg.ObjectMap $ M.fromList [
+                  (Msg.ObjectString "Timestamp", Msg.ObjectInt ts),
+                  (Msg.ObjectString "Counts", makeCounts counts),
+                  (Msg.ObjectString "Dists", makeDists dists''')
+                ]
+            liftIO $ sendMulti pair $ NE.fromList ["stats_complete", encode reply]
+          "pair:shutdown" -> do
+            liftIO $ print "shutdown"
+            liftIO $ ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
+          _ -> do
+            let data_' = either error id (decode data_) :: Msg.Object
+            liftIO $ print ("unknown", type_, data_')
 
   return $ Stagger counts dists
 
