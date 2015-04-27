@@ -38,5 +38,7 @@ executable example
                       random
   default-extensions: OverloadedStrings
   default-language:   Haskell2010
+  ghc-options:         -Wall
+  ghc-prof-options:    -threaded -rtsopts -prof -auto-all -caf-all
   hs-source-dirs:     example
   main-is:            Main.hs
