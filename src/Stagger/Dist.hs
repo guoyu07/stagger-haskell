@@ -12,6 +12,10 @@ import Data.IORef
 import Control.Arrow ((&&&))
 import Control.Applicative ((<$>), (<*>))
 
+import Control.DeepSeq (NFData)
+
+import Stagger.Util (atomicModifyIORefNF)
+
 data DistValue =
   DistValue
     !(Sum Double)
@@ -38,6 +42,8 @@ instance Semigroup DistValue where
       (d <> y)
       (e <> z)
 
+instance NFData DistValue
+
 newtype Dist =
   Dist (IORef (Option DistValue))
 
@@ -47,8 +53,8 @@ newDist =
 
 addSingleton :: Dist -> Double -> IO ()
 addSingleton (Dist ref) value =
-  atomicModifyIORef' ref $ (<> (Option $ Just $ singleton value)) &&& (const ())
+  atomicModifyIORefNF ref $ (<> (Option $ Just $ singleton value)) &&& (const ())
 
 getAndReset :: Dist -> IO (Maybe DistValue)
 getAndReset (Dist ref) =
-  atomicModifyIORef ref $ const (Option Nothing) &&& getOption
+  atomicModifyIORefNF ref $ const (Option Nothing) &&& getOption
