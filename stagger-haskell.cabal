@@ -15,6 +15,7 @@ library
                        bytestring,
                        cereal,
                        containers,
+                       deepseq,
                        hashable,
                        messagepack,
                        mtl,
