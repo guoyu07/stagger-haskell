@@ -16,6 +16,7 @@ library
                        cereal,
                        containers,
                        deepseq,
+                       errors,
                        hashable,
                        messagepack,
                        mtl,

@@ -21,6 +21,7 @@ import Prelude hiding (sequence)
 import Data.Int
 import Data.String (fromString)
 import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as M
@@ -36,6 +37,7 @@ import Control.Monad.Trans (liftIO)
 import qualified Control.Monad.Trans.State as State
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Error.Util (hush)
 
 import System.ZMQ3 as ZMQ
 
@@ -90,7 +92,7 @@ instance Serialize ReportAll where
     getMap _ = Nothing
 
     fromObjText :: Msg.Object -> Maybe T.Text
-    fromObjText (Msg.ObjectString r) = Just r
+    fromObjText (Msg.ObjectString r) = hush $ decodeUtf8' r
     fromObjText _ = Nothing
 
   put (ReportAll r) = put $ Msg.ObjectMap $ M.fromList [
@@ -106,7 +108,7 @@ makeCounts =
   makeCount :: MetricName -> Double -> Msg.Object
   makeCount name value =
     Msg.ObjectMap $ M.fromList [
-      (Msg.ObjectString "Name", Msg.ObjectString name),
+      (Msg.ObjectString "Name", Msg.ObjectString $ encodeUtf8 name),
       (Msg.ObjectString "Count", Msg.ObjectDouble value)
     ]
 
@@ -119,7 +121,7 @@ makeDists =
   makeDist :: MetricName -> DistValue -> Msg.Object
   makeDist name (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
     Msg.ObjectMap $ M.fromList [
-      (Msg.ObjectString "Name", Msg.ObjectString name),
+      (Msg.ObjectString "Name", Msg.ObjectString $ encodeUtf8 name),
       (Msg.ObjectString "Dist", Msg.ObjectArray $ map Msg.ObjectDouble [weight, min, max, sum, sum_2])
     ]
 
