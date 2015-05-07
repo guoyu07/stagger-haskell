@@ -3,7 +3,6 @@
 cd "$(dirname "$0")/.."
 
 cabal sandbox init
-cabal sandbox add-source vendor/messagepack-haskell
 cabal update
 cabal install --enable-library-profiling --only-dependencies -j
 cabal configure --enable-library-profiling --enable-executable-profiling

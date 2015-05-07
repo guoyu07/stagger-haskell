@@ -18,7 +18,7 @@ library
                        deepseq,
                        errors,
                        hashable,
-                       messagepack,
+                       pusher-messagepack,
                        mtl,
                        stm,
                        text,

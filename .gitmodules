@@ -1,3 +1,0 @@
-[submodule "vendor/messagepack-haskell"]
-	path = vendor/messagepack-haskell
-	url = git@github.com:pusher/messagepack-haskell.git
