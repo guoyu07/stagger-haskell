@@ -1,5 +1,5 @@
 name:                stagger-haskell
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Stagger reporter client in Haskell.
 description:         Stagger reporter client in Haskell.
 license:             BSD3
@@ -13,18 +13,18 @@ library
   build-depends:       attoparsec           == 0.12.*,
                        base                 == 4.*,
                        blaze-builder        == 0.4.*,
-                       bytestring           == 0.10.*,
+                       bytestring,
                        cereal               == 0.4.*,
-                       containers           == 0.5.*,
-                       deepseq              == 1.3.*,
+                       containers,
+                       deepseq,
                        errors               == 1.4.*,
                        hashable             == 1.2.*,
                        pusher-messagepack   == 0.4.*,
-                       mtl                  == 2.1.*,
-                       stm                  == 2.4.*,
-                       text                 == 1.2.*,
+                       mtl,
+                       stm,
+                       text,
                        semigroups           == 0.16.*,
-                       transformers         == 0.3.*,
+                       transformers,
                        unordered-containers == 0.2.*,
                        zeromq3-haskell      == 0.5.*
   default-extensions:  OverloadedStrings
@@ -38,7 +38,7 @@ library
 executable example
   build-depends:      base                  == 4.*,
                       stagger-haskell,
-                      random                == 1.0.*
+                      random
   default-extensions: OverloadedStrings
   default-language:   Haskell2010
   ghc-options:         -Wall
