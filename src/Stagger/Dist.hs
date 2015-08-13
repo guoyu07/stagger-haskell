@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module Stagger.Dist (
   Dist,
   DistValue(..),
@@ -14,6 +16,8 @@ import Control.Applicative ((<$>), (<*>))
 
 import Control.DeepSeq (NFData)
 
+import GHC.Generics (Generic)
+
 import Stagger.Util (atomicModifyIORefNF)
 
 data DistValue =
@@ -23,6 +27,7 @@ data DistValue =
     !(Max Double)
     !(Sum Double)
     !(Sum Double)
+  deriving Generic
 
 singleton :: Double -> DistValue
 singleton x =
