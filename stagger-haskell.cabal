@@ -19,7 +19,7 @@ library
                        deepseq,
                        errors               >= 1.4     && < 2.1,
                        hashable             == 1.2.*,
-                       pusher-messagepack   == 0.4.*,
+                       messagepack          == 0.5.*,
                        mtl,
                        stm,
                        text,
