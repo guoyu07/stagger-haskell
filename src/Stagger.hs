@@ -18,7 +18,7 @@ module Stagger (
 
 import Prelude hiding (sequence)
 
-import Data.Int
+import Data.Word
 import Data.String (fromString)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8', encodeUtf8)
@@ -72,7 +72,7 @@ data Stagger =
 
 data ReportAll =
   ReportAll
-    !Int64
+    !Word64
 
 instance Serialize ReportAll where
   get = (get :: Get Msg.Object) >>= (maybe (fail "failed to unpack") return . fromObjReportAll)
@@ -80,8 +80,8 @@ instance Serialize ReportAll where
     fromObjReportAll :: Msg.Object -> Maybe ReportAll
     fromObjReportAll m = ReportAll <$> (fromObjInteger =<< lookup "Timestamp" =<< getMap m)
 
-    fromObjInteger :: Msg.Object -> Maybe Int64
-    fromObjInteger (Msg.ObjectInt i) = Just i
+    fromObjInteger :: Msg.Object -> Maybe Word64
+    fromObjInteger (Msg.ObjectUInt i) = Just i
     fromObjInteger _ = Nothing
 
     getMap :: Msg.Object -> Maybe [(T.Text, Msg.Object)]
@@ -96,7 +96,7 @@ instance Serialize ReportAll where
     fromObjText _ = Nothing
 
   put (ReportAll r) = put $ Msg.ObjectMap $ M.fromList [
-      (Msg.ObjectString "Timestamp", Msg.ObjectInt r)
+      (Msg.ObjectString "Timestamp", Msg.ObjectUInt r)
     ]
 
 makeCounts :: HM.HashMap MetricName Double -> Msg.Object
@@ -162,7 +162,7 @@ newStagger opts = do
             let
               reply =
                 Msg.ObjectMap $ M.fromList [
-                  (Msg.ObjectString "Timestamp", Msg.ObjectInt ts),
+                  (Msg.ObjectString "Timestamp", Msg.ObjectUInt ts),
                   (Msg.ObjectString "Counts", makeCounts counts),
                   (Msg.ObjectString "Dists", makeDists dists''')
                 ]
