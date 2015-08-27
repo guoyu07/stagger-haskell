@@ -1,8 +1,1 @@
-.idea/
-*.iml
-.cabal-sandbox/
-cabal.sandbox.config
-dist/
-*.yml
-
-
+.stack-work
