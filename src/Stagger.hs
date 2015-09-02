@@ -111,13 +111,7 @@ newStagger opts = do
 
   forkIO $ withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
 
-    NSB.send sock $
-      encode $
-      Protocol.RegisterProcessMessage $
-      Protocol.RegisterProcess $
-      staggerTags opts
-
-    flip State.evalStateT HM.empty $ forever $ do
+    flip State.evalStateT HM.empty $ do
       command <- recvMessage sock
       case command of
         Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
@@ -142,8 +136,10 @@ newStagger opts = do
                 (Msg.ObjectString "Dists", makeDists dists''')
               ]
           liftIO $ NSB.send sock (encode reply)
-          return ()
-        Left e -> liftIO $ print e
+          return True
+        Left e -> do
+          liftIO $ print e
+          return False
 
   return $ Stagger counts dists
 

@@ -10,9 +10,10 @@ import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 
 import qualified Stagger.Protocol as Protocol
+import Stagger.Util (foreverWithResource)
 
-withSocket :: NS.HostName -> NS.PortNumber -> (NS.Socket -> IO ()) -> IO ()
-withSocket host port f = bracket connectSocket closeSocket f
+withSocket :: NS.HostName -> NS.PortNumber -> (NS.Socket -> IO Bool) -> IO ()
+withSocket host port f = foreverWithResource connectSocket closeSocket f
  where
   connectSocket = do
     addrs <- NS.getAddrInfo Nothing (Just host) (Just $ show port)
