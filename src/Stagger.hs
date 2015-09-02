@@ -109,7 +109,7 @@ newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
 
-  forkIO $ withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
+  forkIO $ withSocket (staggerHost opts) (staggerPort opts) sendRegistration $ \sock -> do
 
     flip State.evalStateT HM.empty $ do
       command <- recvMessage sock
@@ -142,6 +142,15 @@ newStagger opts = do
           return False
 
   return $ Stagger counts dists
+ where
+  sendRegistration :: NS.Socket -> IO ()
+  sendRegistration sock = do
+    NSB.send sock $
+      encode $
+      Protocol.RegisterProcessMessage $
+      Protocol.RegisterProcess $
+      staggerTags opts
+    return ()
 
 newDistMetric :: Stagger -> MetricName -> IO Dist
 newDistMetric (Stagger _ dists) name = do

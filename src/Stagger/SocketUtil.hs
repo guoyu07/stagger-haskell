@@ -12,9 +12,14 @@ import qualified Network.Socket.ByteString as NSB
 import qualified Stagger.Protocol as Protocol
 import Stagger.Util (foreverWithResource)
 
-withSocket :: NS.HostName -> NS.PortNumber -> (NS.Socket -> IO Bool) -> IO ()
-withSocket host port f = foreverWithResource connectSocket closeSocket f
+withSocket :: NS.HostName -> NS.PortNumber -> (NS.Socket -> IO ()) -> (NS.Socket -> IO Bool) -> IO ()
+withSocket host port setup action =
+  foreverWithResource (connectSocket >>= doSetup) closeSocket action
  where
+  doSetup :: NS.Socket -> IO NS.Socket
+  doSetup s = setup s >> return s
+
+  connectSocket :: IO NS.Socket
   connectSocket = do
     addrs <- NS.getAddrInfo Nothing (Just host) (Just $ show port)
     let addr = head addrs
@@ -22,6 +27,7 @@ withSocket host port f = foreverWithResource connectSocket closeSocket f
     NS.connect sock (NS.addrAddress addr)
     return sock
 
+  closeSocket :: NS.Socket -> IO ()
   closeSocket sock = do
     NS.shutdown sock NS.ShutdownBoth
     NS.close sock
