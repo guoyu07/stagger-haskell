@@ -10,8 +10,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  build-depends:       attoparsec           == 0.12.*,
-                       base                 == 4.*,
+  build-depends:       base                 == 4.*,
                        blaze-builder        == 0.4.*,
                        bytestring,
                        cereal               == 0.4.*,
@@ -21,18 +20,20 @@ library
                        hashable             == 1.2.*,
                        messagepack          == 0.5.*,
                        mtl,
+                       network              ==2.6.*,
                        stm,
                        text,
                        semigroups           == 0.16.*,
                        transformers,
-                       unordered-containers == 0.2.*,
-                       zeromq3-haskell      == 0.5.*
+                       unordered-containers == 0.2.*
   default-extensions:  OverloadedStrings
   default-language:    Haskell2010
   hs-source-dirs:      src
   exposed-modules:     Stagger,
                        Stagger.Counter,
-                       Stagger.Dist
+                       Stagger.Dist,
+                       Stagger.Protocol,
+                       Stagger.SocketUtil
   other-modules:       Stagger.Util
 
 executable example

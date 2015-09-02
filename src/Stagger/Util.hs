@@ -20,3 +20,6 @@ atomicModifyIORefNF ref f = do
     case f a of
       v@(a',_) -> a' `deepseq` v
   b `deepseq` return b
+
+eitherToMonad :: Monad m => Either String a -> m a
+eitherToMonad = either (fail . show) return
