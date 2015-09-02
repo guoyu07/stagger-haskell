@@ -40,6 +40,7 @@ protocol = Protocol 0x8384 0x00
 
 data Command =
   ReportAllCommand |
+  RegisterProcessCommand |
   StatsCompleteCommand
   deriving Show
 
@@ -48,14 +49,17 @@ instance Serialize Command where
     byte <- getWord8
     case byte of
       0x30 -> return ReportAllCommand
+      0x41 -> return RegisterProcessCommand
       0x43 -> return StatsCompleteCommand
       _ -> fail $ "Unkown command: " ++ show byte
 
   put ReportAllCommand = putWord8 0x30
+  put RegisterProcessCommand = putWord8 0x41
   put StatsCompleteCommand = putWord8 0x43
 
 data Message =
   ReportAllMessage !ReportAll |
+  RegisterProcessMessage !RegisterProcess |
   StatsCompleteMessage !Msg.Object -- TODO: create a proper type instead of Object
   deriving Show
 
@@ -74,11 +78,13 @@ instance Serialize Message where
     content <- getByteString $ fromIntegral contentLen
     case command of
       ReportAllCommand -> ReportAllMessage <$> eitherToMonad (decode content)
+      RegisterProcessCommand -> RegisterProcessMessage <$> eitherToMonad (decode content)
       StatsCompleteCommand -> StatsCompleteMessage <$> eitherToMonad (decode content)
 
   put msg =
     case msg of
       ReportAllMessage content -> put' ReportAllCommand content
+      RegisterProcessMessage content -> put' RegisterProcessCommand content
       StatsCompleteMessage content -> put' StatsCompleteCommand content
    where
     put' :: Serialize a => Command -> a -> Put
@@ -101,21 +107,48 @@ instance Serialize ReportAll where
     fromObjReportAll :: Msg.Object -> Maybe ReportAll
     fromObjReportAll m = ReportAll <$> (fromObjInteger =<< lookup "Timestamp" =<< getMap m)
 
-    fromObjInteger :: Msg.Object -> Maybe Word64
-    fromObjInteger (Msg.ObjectUInt i) = Just i
-    fromObjInteger _ = Nothing
-
-    getMap :: Msg.Object -> Maybe [(T.Text, Msg.Object)]
-    getMap (Msg.ObjectMap elems) =
-      mapM (\(k, v) -> do
-        k' <- fromObjText k
-        return (k', v)) (M.toList elems)
-    getMap _ = Nothing
-
-    fromObjText :: Msg.Object -> Maybe T.Text
-    fromObjText (Msg.ObjectString r) = hush $ decodeUtf8' r
-    fromObjText _ = Nothing
-
   put (ReportAll r) = put $ Msg.ObjectMap $ M.fromList [
       (Msg.ObjectString "Timestamp", Msg.ObjectUInt r)
     ]
+
+data RegisterProcess =
+  RegisterProcess
+    !(M.Map B.ByteString B.ByteString)
+  deriving Show
+
+instance Serialize RegisterProcess where
+  get = (get :: Get Msg.Object) >>= (maybe (fail "failed to unpack") return . fromObjRegisterProcess)
+   where
+    fromObjRegisterProcess :: Msg.Object -> Maybe RegisterProcess
+    fromObjRegisterProcess m = RegisterProcess <$> (getByteStringMap =<< lookup "Tags" =<< getMap m)
+
+  put (RegisterProcess p) = put $ Msg.ObjectMap $ M.fromList [
+      (Msg.ObjectString "Tags", Msg.ObjectMap $ M.map Msg.ObjectString $ M.mapKeys Msg.ObjectString p)
+    ]
+
+fromObjInteger :: Msg.Object -> Maybe Word64
+fromObjInteger (Msg.ObjectUInt i) = Just i
+fromObjInteger _ = Nothing
+
+getMap :: Msg.Object -> Maybe [(T.Text, Msg.Object)]
+getMap (Msg.ObjectMap elems) =
+  mapM (\(k, v) -> do
+    k' <- fromObjText k
+    return (k', v)) (M.toList elems)
+getMap _ = Nothing
+
+fromObjText :: Msg.Object -> Maybe T.Text
+fromObjText (Msg.ObjectString r) = hush $ decodeUtf8' r
+fromObjText _ = Nothing
+
+fromObjByteString :: Msg.Object -> Maybe B.ByteString
+fromObjByteString (Msg.ObjectString r) = Just r
+fromObjByteString _ = Nothing
+
+getByteStringMap :: Msg.Object -> Maybe (M.Map B.ByteString B.ByteString)
+getByteStringMap (Msg.ObjectMap elems) =
+  M.fromList <$>
+    mapM
+      (\(k, v) -> (,) <$> fromObjByteString k <*> fromObjByteString v)
+      (M.toList elems)
+

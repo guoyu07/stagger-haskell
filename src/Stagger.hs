@@ -18,6 +18,7 @@ module Stagger (
 
 import Prelude hiding (sequence)
 
+import qualified Data.ByteString as B
 import Data.Word
 import Data.String (fromString)
 import qualified Data.Text as T
@@ -53,11 +54,12 @@ type MetricName = T.Text
 data StaggerOpts =
   StaggerOpts {
     staggerHost :: NS.HostName,
-    staggerPort :: NS.PortNumber
+    staggerPort :: NS.PortNumber,
+    staggerTags :: M.Map B.ByteString B.ByteString
   }
 
 defaultOpts :: StaggerOpts
-defaultOpts = StaggerOpts "127.0.0.1" 5865
+defaultOpts = StaggerOpts "127.0.0.1" 5865 M.empty
 
 data Count =
   Cummulative Integer |
@@ -107,7 +109,14 @@ newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
 
-  forkIO $ withSocket (staggerHost defaultOpts) (staggerPort defaultOpts) $ \sock ->
+  forkIO $ withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
+
+    NSB.send sock $
+      encode $
+      Protocol.RegisterProcessMessage $
+      Protocol.RegisterProcess $
+      staggerTags opts
+
     flip State.evalStateT HM.empty $ forever $ do
       command <- recvMessage sock
       case command of
