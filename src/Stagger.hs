@@ -108,40 +108,9 @@ newStagger :: StaggerOpts -> IO Stagger
 newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
-
-  forkIO $ withSocket (staggerHost opts) (staggerPort opts) sendRegistration $ \sock -> do
-
-    flip State.evalStateT HM.empty $ do
-      command <- recvMessage sock
-      case command of
-        Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
-          prevCummulatives <- State.get
-          newCountValues <- liftIO $ join $ atomically $ readTVar counts
-          let newCummulatives = mapMaybeHashMap getCummulative newCountValues
-          State.put $ HM.union newCummulatives prevCummulatives
-
-          let diff = HM.intersectionWith (-) newCummulatives prevCummulatives
-          let newCurrents = mapMaybeHashMap getCurrent newCountValues
-          let counts = HM.union newCurrents $ HM.map fromIntegral diff
-
-          dists' <- liftIO $ atomically $ readTVar dists
-          dists'' <- liftIO $ sequence dists'
-          let dists''' = mapMaybeHashMap id dists''
-
-          let
-            reply = Protocol.StatsCompleteMessage $
-              Msg.ObjectMap $ M.fromList [
-                (Msg.ObjectString "Timestamp", Msg.ObjectUInt ts),
-                (Msg.ObjectString "Counts", makeCounts counts),
-                (Msg.ObjectString "Dists", makeDists dists''')
-              ]
-          liftIO $ NSB.send sock (encode reply)
-          return True
-        Left e -> do
-          liftIO $ print e
-          return False
-
-  return $ Stagger counts dists
+  let stagger = Stagger counts dists
+  forkIO $ staggerThread stagger
+  return $ stagger
  where
   sendRegistration :: NS.Socket -> IO ()
   sendRegistration sock = do
@@ -151,6 +120,39 @@ newStagger opts = do
       Protocol.RegisterProcess $
       staggerTags opts
     return ()
+
+  staggerThread :: Stagger -> IO ()
+  staggerThread (Stagger counts dists) = do
+    withSocket (staggerHost opts) (staggerPort opts) sendRegistration $ \sock ->
+      flip State.evalStateT HM.empty $ do
+        command <- recvMessage sock
+        case command of
+          Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
+            prevCummulatives <- State.get
+            newCountValues <- liftIO $ join $ atomically $ readTVar counts
+            let newCummulatives = mapMaybeHashMap getCummulative newCountValues
+            State.put $ HM.union newCummulatives prevCummulatives
+
+            let diff = HM.intersectionWith (-) newCummulatives prevCummulatives
+            let newCurrents = mapMaybeHashMap getCurrent newCountValues
+            let counts = HM.union newCurrents $ HM.map fromIntegral diff
+
+            dists' <- liftIO $ atomically $ readTVar dists
+            dists'' <- liftIO $ sequence dists'
+            let dists''' = mapMaybeHashMap id dists''
+
+            let
+              reply = Protocol.StatsCompleteMessage $
+                Msg.ObjectMap $ M.fromList [
+                  (Msg.ObjectString "Timestamp", Msg.ObjectUInt ts),
+                  (Msg.ObjectString "Counts", makeCounts counts),
+                  (Msg.ObjectString "Dists", makeDists dists''')
+                ]
+            liftIO $ NSB.send sock (encode reply)
+            return True
+          Left e -> do
+            liftIO $ print e
+            return False
 
 newDistMetric :: Stagger -> MetricName -> IO Dist
 newDistMetric (Stagger _ dists) name = do
