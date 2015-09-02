@@ -150,9 +150,7 @@ newStagger opts = do
                 ]
             liftIO $ NSB.send sock (encode reply)
             return True
-          Left e -> do
-            liftIO $ print e
-            return False
+          Left e -> return False
 
 newDistMetric :: Stagger -> MetricName -> IO Dist
 newDistMetric (Stagger _ dists) name = do

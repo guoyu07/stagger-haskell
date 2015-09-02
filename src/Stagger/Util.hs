@@ -31,16 +31,14 @@ foreverWithResource :: IO a -> (a -> IO ()) -> (a -> IO Bool) -> IO ()
 foreverWithResource setup cleanup action =
   forever $ do
     handle handler $ do
-      print "setting up"
       resource <- setup
       handle handler $
-        while $ print "performing action" >> action resource
-      print "cleaning up"
+        while $ action resource
       cleanup resource
     threadDelay 1000000 -- 1 second
  where
   handler :: IOException -> IO ()
-  handler e = print $ "foreverWithResource: " ++ show e
+  handler e = print $ "stagger: foreverWithResource: " ++ show e
 
 while :: IO Bool -> IO ()
 while action = do
