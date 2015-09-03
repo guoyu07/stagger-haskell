@@ -18,14 +18,15 @@ module Stagger (
 
 import Prelude hiding (sequence)
 
+import qualified Data.ByteString as B
 import Data.Word
 import Data.String (fromString)
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8', encodeUtf8)
+import Data.Text.Encoding (encodeUtf8)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as M
-import Data.Serialize (Serialize, Get, encode, decode, get, put)
+import Data.Serialize (encode)
 import Data.Monoid (Monoid(..))
 import Data.Traversable (sequence)
 import Data.Semigroup (Sum(..), Max(..), Min(..))
@@ -37,21 +38,28 @@ import Control.Monad.Trans (liftIO)
 import qualified Control.Monad.Trans.State as State
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Error.Util (hush)
 
-import System.ZMQ3 as ZMQ
+import qualified Network.Socket as NS
+import qualified Network.Socket.ByteString as NSB
 
 import Stagger.Util (mapMaybeHashMap)
 
 import Stagger.Counter
 import Stagger.Dist
+import qualified Stagger.Protocol as Protocol
+import Stagger.SocketUtil (recvMessage, withSocket)
 
 type MetricName = T.Text
 
-data StaggerOpts = StaggerOpts { registrationAddr :: String }
+data StaggerOpts =
+  StaggerOpts {
+    staggerHost :: NS.HostName,
+    staggerPort :: NS.PortNumber,
+    staggerTags :: M.Map B.ByteString B.ByteString
+  }
 
 defaultOpts :: StaggerOpts
-defaultOpts = StaggerOpts { registrationAddr = "tcp://127.0.0.1:5867" }
+defaultOpts = StaggerOpts "127.0.0.1" 5865 M.empty
 
 data Count =
   Cummulative Integer |
@@ -69,35 +77,6 @@ data Stagger =
   Stagger
     !(TVar (IO (HM.HashMap MetricName Count)))
     !(TVar (HM.HashMap MetricName (IO (Maybe DistValue))))
-
-data ReportAll =
-  ReportAll
-    !Word64
-
-instance Serialize ReportAll where
-  get = (get :: Get Msg.Object) >>= (maybe (fail "failed to unpack") return . fromObjReportAll)
-   where
-    fromObjReportAll :: Msg.Object -> Maybe ReportAll
-    fromObjReportAll m = ReportAll <$> (fromObjInteger =<< lookup "Timestamp" =<< getMap m)
-
-    fromObjInteger :: Msg.Object -> Maybe Word64
-    fromObjInteger (Msg.ObjectUInt i) = Just i
-    fromObjInteger _ = Nothing
-
-    getMap :: Msg.Object -> Maybe [(T.Text, Msg.Object)]
-    getMap (Msg.ObjectMap elems) =
-      mapM (\(k, v) -> do
-        k' <- fromObjText k
-        return (k', v)) (M.toList elems)
-    getMap _ = Nothing
-
-    fromObjText :: Msg.Object -> Maybe T.Text
-    fromObjText (Msg.ObjectString r) = hush $ decodeUtf8' r
-    fromObjText _ = Nothing
-
-  put (ReportAll r) = put $ Msg.ObjectMap $ M.fromList [
-      (Msg.ObjectString "Timestamp", Msg.ObjectUInt r)
-    ]
 
 makeCounts :: HM.HashMap MetricName Double -> Msg.Object
 makeCounts =
@@ -129,23 +108,26 @@ newStagger :: StaggerOpts -> IO Stagger
 newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
+  let stagger = Stagger counts dists
+  forkIO $ staggerThread stagger
+  return $ stagger
+ where
+  sendRegistration :: NS.Socket -> IO ()
+  sendRegistration sock = do
+    NSB.send sock $
+      encode $
+      Protocol.RegisterProcessMessage $
+      Protocol.RegisterProcess $
+      staggerTags opts
+    return ()
 
-  forkIO $ ZMQ.withContext $ \context ->
-    ZMQ.withSocket context ZMQ.Pair $ \pair -> do
-      ZMQ.bind pair "tcp://127.0.0.1:*"
-      pairEndpoint <- takeWhile (/= '\NUL') <$> ZMQ.lastEndpoint pair
-
-      registration <- ZMQ.socket context ZMQ.Push
-      ZMQ.connect registration $ registrationAddr opts
-
-      ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
-
-      flip State.evalStateT HM.empty $ forever $ do
-        [type_, data_] <- liftIO $ ZMQ.receiveMulti pair
-        case type_ of
-          "report_all" -> do
-            let ReportAll ts = either error id (decode data_)
-
+  staggerThread :: Stagger -> IO ()
+  staggerThread (Stagger counts dists) = do
+    withSocket (staggerHost opts) (staggerPort opts) sendRegistration $ \sock ->
+      flip State.evalStateT HM.empty $ do
+        command <- recvMessage sock
+        case command of
+          Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
             prevCummulatives <- State.get
             newCountValues <- liftIO $ join $ atomically $ readTVar counts
             let newCummulatives = mapMaybeHashMap getCummulative newCountValues
@@ -160,21 +142,15 @@ newStagger opts = do
             let dists''' = mapMaybeHashMap id dists''
 
             let
-              reply =
+              reply = Protocol.StatsCompleteMessage $
                 Msg.ObjectMap $ M.fromList [
                   (Msg.ObjectString "Timestamp", Msg.ObjectUInt ts),
                   (Msg.ObjectString "Counts", makeCounts counts),
                   (Msg.ObjectString "Dists", makeDists dists''')
                 ]
-            liftIO $ sendMulti pair $ NE.fromList ["stats_complete", encode reply]
-          "pair:shutdown" -> do
-            liftIO $ print "shutdown"
-            liftIO $ ZMQ.sendMulti registration $ NE.fromList [fromString pairEndpoint, ""]
-          _ -> do
-            let data_' = either error id (decode data_) :: Msg.Object
-            liftIO $ print ("unknown", type_, data_')
-
-  return $ Stagger counts dists
+            liftIO $ NSB.send sock (encode reply)
+            return True
+          Left e -> return False
 
 newDistMetric :: Stagger -> MetricName -> IO Dist
 newDistMetric (Stagger _ dists) name = do
