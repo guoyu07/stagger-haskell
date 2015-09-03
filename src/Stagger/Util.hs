@@ -38,7 +38,7 @@ foreverWithResource setup cleanup action =
     threadDelay 1000000 -- 1 second
  where
   handler :: IOException -> IO ()
-  handler e = print $ "stagger: foreverWithResource: " ++ show e
+  handler e = return ()
 
 while :: IO Bool -> IO ()
 while action = do
