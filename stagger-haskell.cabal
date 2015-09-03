@@ -1,10 +1,10 @@
 name:                stagger-haskell
-version:             0.1.0.2
+version:             0.2.0.0
 synopsis:            Stagger reporter client in Haskell.
 description:         Stagger reporter client in Haskell.
 license:             BSD3
-author:              Daniel Waterworth
-maintainer:          daniel@pusher.com
+author:              Daniel Waterworth <daniel@pusher.com>, Will Sewell <will@pusher.com>
+maintainer:          Will Sewell <will@pusher.com>
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
