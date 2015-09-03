@@ -10,11 +10,15 @@ import Stagger
 main :: IO ()
 main = do
   stagger <- newStagger defaultOpts
-  counter <- newRateCounter stagger "test"
-  dist <- newDistMetric stagger "test_dist"
+  counterA <- newCurrentCounter stagger "test_count_a"
+  counterB <- newRateCounter stagger "test_count_b"
+  distA <- newDistMetric stagger "test_dist_a"
+  distB <- newDistMetric stagger "test_dist_b"
 
   forever $ do
     r <- randomRIO (0, 100000)
     threadDelay r
-    addSingleton dist $ fromIntegral r
-    incCounter counter
+    addSingleton distA $ fromIntegral r
+    addSingleton distB $ fromIntegral (100000 - r)
+    incCounter counterA
+    incCounter counterB

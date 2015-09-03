@@ -27,20 +27,20 @@ atomicModifyIORefNF ref f = do
 eitherToMonad :: Monad m => Either String a -> m a
 eitherToMonad = either (fail . show) return
 
-foreverWithResource :: IO a -> (a -> IO ()) -> (a -> IO Bool) -> IO ()
-foreverWithResource setup cleanup action =
+withRetryingResource :: IO a -> (a -> IO ()) -> (a -> IO ()) -> IO ()
+withRetryingResource setup cleanup action =
   forever $ do
     handle handler $ do
       resource <- setup
       handle handler $
-        while $ action resource
+        action resource
       cleanup resource
     threadDelay 1000000 -- 1 second
  where
   handler :: IOException -> IO ()
   handler e = return ()
 
-while :: IO Bool -> IO ()
+while :: Monad m => m Bool -> m ()
 while action = do
   result <- action
   case result of

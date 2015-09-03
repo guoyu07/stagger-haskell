@@ -10,11 +10,11 @@ import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 
 import qualified Stagger.Protocol as Protocol
-import Stagger.Util (foreverWithResource)
+import Stagger.Util (withRetryingResource)
 
-withSocket :: NS.HostName -> NS.PortNumber -> (NS.Socket -> IO ()) -> (NS.Socket -> IO Bool) -> IO ()
+withSocket :: NS.HostName -> NS.PortNumber -> (NS.Socket -> IO ()) -> (NS.Socket -> IO ()) -> IO ()
 withSocket host port setup action =
-  foreverWithResource (connectSocket >>= doSetup) closeSocket action
+  withRetryingResource (connectSocket >>= doSetup) closeSocket action
  where
   doSetup :: NS.Socket -> IO NS.Socket
   doSetup s = setup s >> return s

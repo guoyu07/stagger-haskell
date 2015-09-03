@@ -42,7 +42,7 @@ import Control.Concurrent.STM
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 
-import Stagger.Util (mapMaybeHashMap)
+import Stagger.Util (mapMaybeHashMap, while)
 
 import Stagger.Counter
 import Stagger.Dist
@@ -124,7 +124,7 @@ newStagger opts = do
   staggerThread :: Stagger -> IO ()
   staggerThread (Stagger counts dists) = do
     withSocket (staggerHost opts) (staggerPort opts) sendRegistration $ \sock ->
-      flip State.evalStateT HM.empty $ do
+      flip State.evalStateT HM.empty $ while $ do
         command <- recvMessage sock
         case command of
           Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
