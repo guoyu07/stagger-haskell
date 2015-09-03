@@ -62,12 +62,12 @@ defaultOpts :: StaggerOpts
 defaultOpts = StaggerOpts "127.0.0.1" 5865 M.empty
 
 data Count =
-  Cummulative Integer |
+  Cumulative Integer |
   Current Double
 
-getCummulative :: Count -> Maybe Integer
-getCummulative (Cummulative x) = Just x
-getCummulative _ = Nothing
+getCumulative :: Count -> Maybe Integer
+getCumulative (Cumulative x) = Just x
+getCumulative _ = Nothing
 
 getCurrent :: Count -> Maybe Double
 getCurrent (Current x) = Just x
@@ -128,12 +128,12 @@ newStagger opts = do
         command <- recvMessage sock
         case command of
           Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
-            prevCummulatives <- State.get
+            prevCumulatives <- State.get
             newCountValues <- liftIO $ join $ atomically $ readTVar counts
-            let newCummulatives = mapMaybeHashMap getCummulative newCountValues
-            State.put $ HM.union newCummulatives prevCummulatives
+            let newCumulatives = mapMaybeHashMap getCumulative newCountValues
+            State.put $ HM.union newCumulatives prevCumulatives
 
-            let diff = HM.intersectionWith (-) newCummulatives prevCummulatives
+            let diff = HM.intersectionWith (-) newCumulatives prevCumulatives
             let newCurrents = mapMaybeHashMap getCurrent newCountValues
             let counts = HM.union newCurrents $ HM.map fromIntegral diff
 
@@ -172,7 +172,7 @@ newCurrentCounter stagger name = do
 
 registerRateCount :: Stagger -> MetricName -> Counter -> IO ()
 registerRateCount stagger name counter =
-  registerCount stagger name (Cummulative <$> readCounter counter)
+  registerCount stagger name (Cumulative <$> readCounter counter)
 
 registerCurrentCount :: Stagger -> MetricName -> Counter -> IO ()
 registerCurrentCount stagger name counter =
