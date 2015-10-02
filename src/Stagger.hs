@@ -49,6 +49,8 @@ import Stagger.Dist
 import qualified Stagger.Protocol as Protocol
 import Stagger.SocketUtil (recvMessage, withSocket)
 
+import qualified System.Clock as C
+
 type MetricName = T.Text
 
 data StaggerOpts =
@@ -109,7 +111,8 @@ newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
   let stagger = Stagger counts dists
-  forkIO $ staggerThread stagger
+--   forkIO $ staggerThread stagger
+  forkIO $ fileDumpThread stagger
   return $ stagger
  where
   sendRegistration :: NS.Socket -> IO ()
@@ -152,6 +155,37 @@ newStagger opts = do
             liftIO $ NSB.send sock (encode reply)
             return True
           Left e -> return False
+
+  fileDumpThread :: Stagger -> IO ()
+  fileDumpThread (Stagger counts dists) = forever $ do
+    threadDelay 1000000
+    flip State.evalStateT HM.empty $ while $ do
+      prevCumulatives <- State.get
+      newCountValues <- liftIO $ join $ atomically $ readTVar counts
+      let newCumulatives = mapMaybeHashMap getCumulative newCountValues
+      State.put $ HM.union newCumulatives prevCumulatives
+
+      let diff = HM.intersectionWith (-) newCumulatives prevCumulatives
+      let newCurrents = mapMaybeHashMap getCurrent newCountValues
+      let counts = HM.union newCurrents $ HM.map fromIntegral diff
+
+      dists' <- liftIO $ atomically $ readTVar dists
+      dists'' <- liftIO $ sequence dists'
+      let dists''' = mapMaybeHashMap id dists''
+
+      ts <- liftIO $ getTime
+      sequence $ HM.elems $ HM.mapWithKey (\k v -> liftIO $ appendFile ("megabus-counts-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show v ++ "\n")) counts
+      sequence $ HM.elems $ HM.mapWithKey (\k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> liftIO $ appendFile ("megabus-dists-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n")) dists'''
+--       let renderedCounts = HM.foldlWithKey' (\acc k v -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show v ++ "\n") "" counts
+--       let renderedDists = HM.foldlWithKey' (\acc k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n") "" dists'''
+--       liftIO $ appendFile "megabus.counts" renderedCounts
+--       liftIO $ appendFile "megabus.dists" renderedDists
+      return True
+
+getTime :: IO Word64
+getTime = do
+  ts <- C.getTime C.Monotonic
+  return $ (1000000 * fromIntegral (C.sec ts)) + (fromIntegral (C.nsec ts `div` 1000))
 
 newDistMetric :: Stagger -> MetricName -> IO Dist
 newDistMetric (Stagger _ dists) name = do
