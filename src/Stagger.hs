@@ -22,6 +22,7 @@ import qualified Data.ByteString as B
 import Data.Word
 import Data.String (fromString)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HM
@@ -51,6 +52,8 @@ import Stagger.SocketUtil (recvMessage, withSocket)
 
 import qualified System.Clock as C
 
+import Data.Monoid ((<>))
+
 type MetricName = T.Text
 
 data StaggerOpts =
@@ -79,6 +82,7 @@ data Stagger =
   Stagger
     !(TVar (IO (HM.HashMap MetricName Count)))
     !(TVar (HM.HashMap MetricName (IO (Maybe DistValue))))
+    !(TVar (HM.HashMap T.Text T.Text))
 
 makeCounts :: HM.HashMap MetricName Double -> Msg.Object
 makeCounts =
@@ -110,9 +114,11 @@ newStagger :: StaggerOpts -> IO Stagger
 newStagger opts = do
   counts <- newTVarIO (return HM.empty)
   dists <- newTVarIO mempty
-  let stagger = Stagger counts dists
+  output <- newTVarIO HM.empty
+  let stagger = Stagger counts dists output
 --   forkIO $ staggerThread stagger
   forkIO $ fileDumpThread stagger
+  forkIO $ fileWriterThread stagger
   return $ stagger
  where
   sendRegistration :: NS.Socket -> IO ()
@@ -125,7 +131,7 @@ newStagger opts = do
     return ()
 
   staggerThread :: Stagger -> IO ()
-  staggerThread (Stagger counts dists) = do
+  staggerThread (Stagger counts dists output) =
     withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
       sendRegistration sock
       flip State.evalStateT HM.empty $ while $ do
@@ -157,9 +163,9 @@ newStagger opts = do
           Left e -> return False
 
   fileDumpThread :: Stagger -> IO ()
-  fileDumpThread (Stagger counts dists) = forever $ do
-    threadDelay 1000000
+  fileDumpThread (Stagger counts dists output) = do
     flip State.evalStateT HM.empty $ while $ do
+      liftIO $ threadDelay 1000000
       prevCumulatives <- State.get
       newCountValues <- liftIO $ join $ atomically $ readTVar counts
       let newCumulatives = mapMaybeHashMap getCumulative newCountValues
@@ -174,13 +180,36 @@ newStagger opts = do
       let dists''' = mapMaybeHashMap id dists''
 
       ts <- liftIO $ getTime
-      sequence $ HM.elems $ HM.mapWithKey (\k v -> liftIO $ appendFile ("megabus-counts-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show v ++ "\n")) counts
-      sequence $ HM.elems $ HM.mapWithKey (\k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> liftIO $ appendFile ("megabus-dists-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n")) dists'''
+      liftIO $ print "entering STM"
+      liftIO $ atomically $ do
+        old <- readTVar output
+        let
+          new = HM.fromList $ map (\(k, v) ->
+            let newK = "megabus-counts-" <> k <> ".csv" in
+            case HM.lookup newK old  of
+              Just oldV -> (newK, oldV <> T.pack (show ts) <> "," <> T.pack (show v) <> "\n")
+              Nothing -> (newK, T.pack (show ts) <> "," <> T.pack (show v) <> "\n")) (HM.toList counts)
+        writeTVar output new
+
+      liftIO $ print "finished STM"
+--       sequence $ HM.elems $ HM.mapWithKey (\k v -> liftIO $ appendFile ("megabus-counts-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show v ++ "\n")) counts
+--       sequence $ HM.elems $ HM.mapWithKey (\k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> liftIO $ appendFile ("megabus-dists-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n")) dists'''
 --       let renderedCounts = HM.foldlWithKey' (\acc k v -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show v ++ "\n") "" counts
 --       let renderedDists = HM.foldlWithKey' (\acc k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n") "" dists'''
 --       liftIO $ appendFile "megabus.counts" renderedCounts
 --       liftIO $ appendFile "megabus.dists" renderedDists
       return True
+
+  fileWriterThread :: Stagger -> IO ()
+  fileWriterThread (Stagger counts dists output) = forever $ do
+    print "X"
+    threadDelay 1000000
+    o' <- atomically $ do
+      o <- readTVar output
+      writeTVar output HM.empty
+      return o
+    print o'
+    sequence $ HM.mapWithKey (\k v -> print "1" >> T.appendFile (T.unpack k) v) o'
 
 getTime :: IO Word64
 getTime = do
@@ -188,7 +217,7 @@ getTime = do
   return $ (1000000 * fromIntegral (C.sec ts)) + (fromIntegral (C.nsec ts `div` 1000))
 
 newDistMetric :: Stagger -> MetricName -> IO Dist
-newDistMetric (Stagger _ dists) name = do
+newDistMetric (Stagger _ dists _) name = do
   dist <- newDist
   atomically $ modifyTVar' dists $ HM.insert name $ getAndReset dist
   return dist
@@ -218,5 +247,5 @@ registerCount stagger name op =
   registerCounts stagger $ HM.singleton name <$> op
 
 registerCounts :: Stagger -> IO (HM.HashMap MetricName Count) -> IO ()
-registerCounts (Stagger counts _) op = do
+registerCounts (Stagger counts _ _) op = do
   atomically $ modifyTVar' counts (\op' -> HM.union <$> op <*> op')
