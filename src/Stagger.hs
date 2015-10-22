@@ -123,7 +123,8 @@ newStagger opts = do
 
   staggerThread :: Stagger -> IO ()
   staggerThread (Stagger counts dists) = do
-    withSocket (staggerHost opts) (staggerPort opts) sendRegistration $ \sock ->
+    withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
+      sendRegistration sock
       flip State.evalStateT HM.empty $ while $ do
         command <- recvMessage sock
         case command of
