@@ -3,7 +3,7 @@ module Stagger.SocketUtil where
 import qualified Data.ByteString as B
 import Data.Serialize (Result(..), get, runGetPartial)
 
-import Control.Exception (bracket)
+import Control.Exception (IOException, bracket, handle)
 import Control.Monad ((>=>))
 import Control.Monad.Trans (MonadIO, liftIO)
 
@@ -32,8 +32,12 @@ withSocket host port action =
 
   closeSocket :: (NS.AddrInfo, NS.Socket) -> IO ()
   closeSocket (_, sock) = do
-    NS.shutdown sock NS.ShutdownBoth
+    -- Try and shutdown the socket if it is still open
+    handle handler $ NS.shutdown sock NS.ShutdownBoth
     NS.close sock
+   where
+    handler :: IOException -> IO ()
+    handler _ = return ()
 
 recvMessage :: MonadIO m => NS.Socket -> m (Either String Protocol.Message)
 recvMessage sock = recvMessageRec $ runGetPartial get
