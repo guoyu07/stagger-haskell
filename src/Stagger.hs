@@ -49,8 +49,10 @@ import Stagger.Dist
 import qualified Stagger.Protocol as Protocol
 import Stagger.SocketUtil (recvMessage, withSocket)
 
+-- |The name of a given metric, to reference it
 type MetricName = T.Text
 
+-- |Options for the stagger server
 data StaggerOpts =
   StaggerOpts {
     staggerHost :: NS.HostName,
@@ -73,6 +75,8 @@ getCurrent :: Count -> Maybe Double
 getCurrent (Current x) = Just x
 getCurrent _ = Nothing
 
+-- |Data structure containing the current state. It uses:
+--  - a 'HashMap' with the 'MetricName' as key and 'Count' as value.
 data Stagger =
   Stagger
     !(TVar (IO (HM.HashMap MetricName Count)))
@@ -104,6 +108,17 @@ makeDists =
       (Msg.ObjectString "Dist", Msg.ObjectArray $ map Msg.ObjectDouble [weight, min, max, sum, sum_2])
     ]
 
+-- |Initializes a new 'Stagger' object, allocating
+-- a hashmap for the counts and empty distributions, 
+-- forks a new thread to run the created 'Stagger',
+-- and return the 'Stagger'.
+--
+-- The forked thread opens a socket (port defined with 'StaggerOpts'), registers on it
+-- as defined in 'Protocol', and reads incoming messages. See 'SocketUtil' for info on messages.
+--  - (only) in case of a decoding error or closed socket, staggers exits
+--  - in case of a well formed message (assuming 'Protocol.ReportAll'), staggers reads the timestamp
+--    included in the message, and replied with a 'Protocol.StatsCompleteCommand' containing the
+--    metrics since last query
 newStagger :: StaggerOpts -> IO Stagger
 newStagger opts = do
   counts <- newTVarIO (return HM.empty)
