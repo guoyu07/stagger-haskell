@@ -163,7 +163,7 @@ newStagger opts = do
           Left e -> return False
 
   fileDumpThread :: Stagger -> IO ()
-  fileDumpThread (Stagger counts dists output) = do
+  fileDumpThread (Stagger counts dists output) =
     flip State.evalStateT HM.empty $ while $ do
       liftIO $ threadDelay 1000000
       prevCumulatives <- State.get
@@ -180,7 +180,6 @@ newStagger opts = do
       let dists''' = mapMaybeHashMap id dists''
 
       ts <- liftIO $ getTime
-      liftIO $ print "entering STM"
       liftIO $ atomically $ do
         old <- readTVar output
         let
@@ -191,7 +190,6 @@ newStagger opts = do
               Nothing -> (newK, T.pack (show ts) <> "," <> T.pack (show v) <> "\n")) (HM.toList counts)
         writeTVar output new
 
-      liftIO $ print "finished STM"
 --       sequence $ HM.elems $ HM.mapWithKey (\k v -> liftIO $ appendFile ("megabus-counts-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show v ++ "\n")) counts
 --       sequence $ HM.elems $ HM.mapWithKey (\k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> liftIO $ appendFile ("megabus-dists-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n")) dists'''
 --       let renderedCounts = HM.foldlWithKey' (\acc k v -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show v ++ "\n") "" counts
@@ -202,13 +200,11 @@ newStagger opts = do
 
   fileWriterThread :: Stagger -> IO ()
   fileWriterThread (Stagger counts dists output) = forever $ do
-    print "X"
     threadDelay 1000000
     o' <- atomically $ do
       o <- readTVar output
       writeTVar output HM.empty
       return o
-    print o'
     sequence $ HM.mapWithKey (\k v -> print "1" >> T.appendFile (T.unpack k) v) o'
 
 getTime :: IO Word64
