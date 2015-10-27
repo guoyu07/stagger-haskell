@@ -165,7 +165,7 @@ newStagger opts = do
   fileDumpThread :: Stagger -> IO ()
   fileDumpThread (Stagger counts dists output) =
     flip State.evalStateT HM.empty $ while $ do
-      liftIO $ threadDelay 1000000
+      liftIO $ threadDelay 100000
       prevCumulatives <- State.get
       newCountValues <- liftIO $ join $ atomically $ readTVar counts
       let newCumulatives = mapMaybeHashMap getCumulative newCountValues
