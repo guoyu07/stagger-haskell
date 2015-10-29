@@ -205,7 +205,7 @@ newStagger opts = do
       o <- readTVar output
       writeTVar output HM.empty
       return o
-    sequence $ HM.mapWithKey (\k v -> print "1" >> T.appendFile (T.unpack k) v) o'
+    sequence $ HM.mapWithKey (\k v -> T.appendFile (T.unpack k) v) o'
 
 getTime :: IO Word64
 getTime = do
