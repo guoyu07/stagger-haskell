@@ -183,20 +183,27 @@ newStagger opts = do
       liftIO $ atomically $ do
         old <- readTVar output
         let
-          new = HM.fromList $ map (\(k, v) ->
+          newCounts = HM.fromList $ map (\(k, v) ->
             let newK = "megabus-counts-" <> k <> ".csv" in
             case HM.lookup newK old  of
-              Just oldV -> (newK, oldV <> T.pack (show ts) <> "," <> T.pack (show v) <> "\n")
-              Nothing -> (newK, T.pack (show ts) <> "," <> T.pack (show v) <> "\n")) (HM.toList counts)
-        writeTVar output new
+              Just oldV -> (newK, oldV <> renderCount ts v)
+              Nothing -> (newK, renderCount ts v)) (HM.toList counts)
 
---       sequence $ HM.elems $ HM.mapWithKey (\k v -> liftIO $ appendFile ("megabus-counts-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show v ++ "\n")) counts
---       sequence $ HM.elems $ HM.mapWithKey (\k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> liftIO $ appendFile ("megabus-dists-" ++ T.unpack k ++ ".csv") (show ts ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n")) dists'''
---       let renderedCounts = HM.foldlWithKey' (\acc k v -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show v ++ "\n") "" counts
---       let renderedDists = HM.foldlWithKey' (\acc k (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) -> acc ++ show ts ++ "," ++ T.unpack k ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n") "" dists'''
---       liftIO $ appendFile "megabus.counts" renderedCounts
---       liftIO $ appendFile "megabus.dists" renderedDists
+          newDists = HM.fromList $ map (\(k, v) ->
+            let newK = "megabus-dists-" <> k <> ".csv" in
+            case HM.lookup newK old  of
+              Just oldV -> (newK, oldV <> renderDist ts v)
+              Nothing -> (newK, renderDist ts v)) (HM.toList dists''')
+
+          new = HM.union newCounts newDists
+
+        writeTVar output new
       return True
+   where
+    renderCount ts c = T.pack $ show ts ++ "," ++ show c ++ "\n"
+
+    renderDist ts (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
+      T.pack $ show ts ++ "," ++ show weight ++ "," ++ show min ++ "," ++ show max ++ "," ++ show sum ++ "," ++ show sum_2 ++ "\n"
 
   fileWriterThread :: Stagger -> IO ()
   fileWriterThread (Stagger counts dists output) = forever $ do
