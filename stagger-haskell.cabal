@@ -1,5 +1,5 @@
 name:                stagger-haskell
-version:             0.2.0.0
+version:             0.2.0.1
 synopsis:            Stagger reporter client in Haskell.
 description:         Stagger reporter client in Haskell.
 license:             BSD3
@@ -23,7 +23,7 @@ library
                        network              ==2.6.*,
                        stm,
                        text,
-                       semigroups           == 0.16.*,
+                       semigroups           >= 0.16    && < 0.19,
                        transformers,
                        unordered-containers == 0.2.*
   default-extensions:  OverloadedStrings
