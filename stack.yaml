@@ -3,4 +3,4 @@ packages:
 - '.'
 extra-deps:
 - messagepack-0.5.0
-resolver: lts-3.0
+resolver: lts-4.1
