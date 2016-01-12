@@ -8,17 +8,15 @@ module Stagger.Dist (
   addSingleton
 ) where
 
-import Data.Semigroup
-import Data.IORef
-
-import Control.Arrow ((&&&))
 import Control.Applicative ((<$>), (<*>))
-
+import Control.Arrow ((&&&))
 import Control.DeepSeq (NFData)
-
+import Data.IORef (IORef, newIORef)
+import Data.Semigroup (Semigroup, Max(..), Min(..), Sum(..), (<>), Option(..))
 import GHC.Generics (Generic)
-
 import Stagger.Util (atomicModifyIORefNF)
+
+import qualified Data.Semigroup as SG
 
 data DistValue =
   DistValue
@@ -58,8 +56,8 @@ newDist =
 
 addSingleton :: Dist -> Double -> IO ()
 addSingleton (Dist ref) value =
-  atomicModifyIORefNF ref $ (<> (Option $ Just $ singleton value)) &&& (const ())
+  atomicModifyIORefNF ref $ (<> (Option $ Just $ singleton value)) &&& const ()
 
 getAndReset :: Dist -> IO (Maybe DistValue)
 getAndReset (Dist ref) =
-  atomicModifyIORefNF ref $ const (Option Nothing) &&& getOption
+  atomicModifyIORefNF ref $ const (Option Nothing) &&& SG.getOption

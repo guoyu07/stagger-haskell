@@ -5,11 +5,9 @@ module Stagger.Counter (
   readCounter,
 ) where
 
-import Data.IORef
-
-import Control.Arrow ((&&&))
 import Control.Applicative ((<$>), (<*>))
-
+import Control.Arrow ((&&&))
+import Data.IORef (IORef, newIORef, readIORef)
 import Stagger.Util (atomicModifyIORefNF)
 
 newtype Counter =
@@ -21,11 +19,11 @@ newCounter =
 
 decCounter :: Counter -> IO ()
 decCounter (Counter c) =
-  atomicModifyIORefNF c ((+1) &&& (const ()))
+  atomicModifyIORefNF c ((+1) &&& const ())
 
 incCounter :: Counter -> IO ()
 incCounter (Counter c) =
-  atomicModifyIORefNF c ((+1) &&& (const ()))
+  atomicModifyIORefNF c ((+1) &&& const ())
 
 readCounter :: Counter -> IO Integer
 readCounter (Counter c) =

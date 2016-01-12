@@ -1,34 +1,17 @@
 module Stagger.Protocol where
 
+import Control.Error.Util (hush)
+import Control.Monad (when)
+import Data.Text.Encoding (decodeUtf8')
+import Data.Word (Word8, Word16, Word64)
+import Data.Serialize (Get, Put, Result(..), Serialize)
+import Stagger.Util (eitherToMonad)
+
 import qualified Data.ByteString as B
 import qualified Data.Map as M
 import qualified Data.MessagePack as Msg
-import Data.Serialize (
-  Get,
-  Put,
-  Result(..),
-  Serialize,
-  decode,
-  encode,
-  get,
-  getByteString,
-  getWord8,
-  getWord16be,
-  getWord32be,
-  put,
-  putByteString,
-  putWord8,
-  putWord16be,
-  putWord32be,
-  runGetPartial)
+import qualified Data.Serialize as Serialize
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8')
-import Data.Word
-
-import Control.Error.Util (hush)
-import Control.Monad (when)
-
-import Stagger.Util (eitherToMonad)
 
 data Protocol =
   Protocol {
@@ -46,40 +29,45 @@ data Command =
 
 instance Serialize Command where
   get = do
-    byte <- getWord8
+    byte <- Serialize.getWord8
     case byte of
       0x30 -> return ReportAllCommand
       0x41 -> return RegisterProcessCommand
       0x43 -> return StatsCompleteCommand
       _ -> fail $ "Unkown command: " ++ show byte
 
-  put ReportAllCommand = putWord8 0x30
-  put RegisterProcessCommand = putWord8 0x41
-  put StatsCompleteCommand = putWord8 0x43
+  put ReportAllCommand = Serialize.putWord8 0x30
+  put RegisterProcessCommand = Serialize.putWord8 0x41
+  put StatsCompleteCommand = Serialize.putWord8 0x43
 
 data Message =
   ReportAllMessage !ReportAll |
   RegisterProcessMessage !RegisterProcess |
-  StatsCompleteMessage !Msg.Object -- TODO: create a proper type instead of Object
+
+  --v TODO: create a proper type instead of Object
+  StatsCompleteMessage !Msg.Object
   deriving Show
 
 instance Serialize Message where
   get = do
-    magicBytes <- getWord16be
+    magicBytes <- Serialize.getWord16be
     when
-      (magicBytes /= (protocolMagicBytes protocol))
-      (fail $ "Expected magic bytes: " ++ (show $ protocolMagicBytes protocol))
-    version <- getWord8
+      (magicBytes /= protocolMagicBytes protocol)
+      (fail $ "Expected magic bytes: " ++ show (protocolMagicBytes protocol))
+    version <- Serialize.getWord8
     when
-      (version /= (protocolVersion protocol))
-      (fail $ "Expected protocol version: " ++ (show $ protocolVersion protocol))
-    command <- get
-    contentLen <- getWord32be
-    content <- getByteString $ fromIntegral contentLen
+      (version /= protocolVersion protocol)
+      (fail $ "Expected protocol version: " ++ show  (protocolVersion protocol))
+    command <- Serialize.get
+    contentLen <- Serialize.getWord32be
+    content <- Serialize.getByteString $ fromIntegral contentLen
     case command of
-      ReportAllCommand -> ReportAllMessage <$> eitherToMonad (decode content)
-      RegisterProcessCommand -> RegisterProcessMessage <$> eitherToMonad (decode content)
-      StatsCompleteCommand -> StatsCompleteMessage <$> eitherToMonad (decode content)
+      ReportAllCommand ->
+        ReportAllMessage <$> eitherToMonad (Serialize.decode content)
+      RegisterProcessCommand ->
+        RegisterProcessMessage <$> eitherToMonad (Serialize.decode content)
+      StatsCompleteCommand ->
+        StatsCompleteMessage <$> eitherToMonad (Serialize.decode content)
 
   put msg =
     case msg of
@@ -89,12 +77,12 @@ instance Serialize Message where
    where
     put' :: Serialize a => Command -> a -> Put
     put' cmd content = do
-      let packedContent = encode content
-      putWord16be $ protocolMagicBytes protocol
-      putWord8 $ protocolVersion protocol
-      put cmd
-      putWord32be $ fromIntegral $ B.length packedContent
-      putByteString packedContent
+      let packedContent = Serialize.encode content
+      Serialize.putWord16be $ protocolMagicBytes protocol
+      Serialize.putWord8 $ protocolVersion protocol
+      Serialize.put cmd
+      Serialize.putWord32be $ fromIntegral $ B.length packedContent
+      Serialize.putByteString packedContent
 
 data ReportAll =
   ReportAll
@@ -102,12 +90,14 @@ data ReportAll =
   deriving Show
 
 instance Serialize ReportAll where
-  get = (get :: Get Msg.Object) >>= (maybe (fail "failed to unpack") return . fromObjReportAll)
+  get = (Serialize.get :: Get Msg.Object) >>=
+    (maybe (fail "failed to unpack") return . fromObjReportAll)
    where
     fromObjReportAll :: Msg.Object -> Maybe ReportAll
-    fromObjReportAll m = ReportAll <$> (fromObjInteger =<< lookup "Timestamp" =<< getMap m)
+    fromObjReportAll m =
+      ReportAll <$> (fromObjInteger =<< lookup "Timestamp" =<< getMap m)
 
-  put (ReportAll r) = put $ Msg.ObjectMap $ M.fromList [
+  put (ReportAll r) = Serialize.put $ Msg.ObjectMap $ M.fromList [
       (Msg.ObjectString "Timestamp", Msg.ObjectUInt r)
     ]
 
@@ -117,13 +107,16 @@ data RegisterProcess =
   deriving Show
 
 instance Serialize RegisterProcess where
-  get = (get :: Get Msg.Object) >>= (maybe (fail "failed to unpack") return . fromObjRegisterProcess)
+  get = (Serialize.get :: Get Msg.Object) >>=
+    (maybe (fail "failed to unpack") return . fromObjRegisterProcess)
    where
     fromObjRegisterProcess :: Msg.Object -> Maybe RegisterProcess
-    fromObjRegisterProcess m = RegisterProcess <$> (getByteStringMap =<< lookup "Tags" =<< getMap m)
+    fromObjRegisterProcess m =
+      RegisterProcess <$> (getByteStringMap =<< lookup "Tags" =<< getMap m)
 
-  put (RegisterProcess p) = put $ Msg.ObjectMap $ M.fromList [
-      (Msg.ObjectString "Tags", Msg.ObjectMap $ M.map Msg.ObjectString $ M.mapKeys Msg.ObjectString p)
+  put (RegisterProcess p) = Serialize.put $ Msg.ObjectMap $ M.fromList [
+      (Msg.ObjectString "Tags",
+        Msg.ObjectMap $ M.map Msg.ObjectString $ M.mapKeys Msg.ObjectString p)
     ]
 
 fromObjInteger :: Msg.Object -> Maybe Word64
