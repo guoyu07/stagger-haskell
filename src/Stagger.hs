@@ -13,41 +13,38 @@ module Stagger (
   incCounter,
   Dist,
   newDistMetric,
-  addSingleton,
+  Dist.addSingleton,
 ) where
 
-import Prelude hiding (sequence)
-
-import qualified Data.ByteString as B
-import Data.Word
-import Data.String (fromString)
-import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8)
-import qualified Data.List.NonEmpty as NE
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Map as M
-import Data.Serialize (encode)
-import Data.Monoid (Monoid(..))
-import Data.Traversable (sequence)
-import Data.Semigroup (Sum(..), Max(..), Min(..))
-import qualified Data.MessagePack as Msg
-
 import Control.Applicative ((<$>), (<*>))
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (TVar, atomically)
 import Control.Monad (forever, join)
 import Control.Monad.Trans (liftIO)
-import qualified Control.Monad.Trans.State as State
-import Control.Concurrent
-import Control.Concurrent.STM
-
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NSB
-
+import Data.Monoid (Monoid(..))
+import Data.Semigroup (Sum(..), Max(..), Min(..))
+import Data.Serialize (encode)
+import Data.String (fromString)
+import Data.Text.Encoding (encodeUtf8)
+import Data.Traversable (sequence)
+import Prelude hiding (sequence)
+import Stagger.Counter (Counter, incCounter, newCounter, readCounter)
+import Stagger.Dist (DistValue(DistValue), Dist, newDist)
+import Stagger.SocketUtil (recvMessage, withSocket)
 import Stagger.Util (mapMaybeHashMap, while)
 
-import Stagger.Counter
-import Stagger.Dist
+import qualified Control.Concurrent.STM as STM
+import qualified Control.Monad.Trans.State as State
+import qualified Data.ByteString as B
+import qualified Data.HashMap.Strict as HM
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Map as M
+import qualified Data.MessagePack as Msg
+import qualified Data.Text as T
+import qualified Network.Socket as NS
+import qualified Network.Socket.ByteString as NSB
+import qualified Stagger.Dist as Dist
 import qualified Stagger.Protocol as Protocol
-import Stagger.SocketUtil (recvMessage, withSocket)
 
 type MetricName = T.Text
 
@@ -98,19 +95,22 @@ makeDists =
   HM.toList
  where
   makeDist :: MetricName -> DistValue -> Msg.Object
-  makeDist name (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
+  makeDist
+    name
+    (DistValue (Sum weight) (Min min) (Max max) (Sum sum) (Sum sum_2)) =
     Msg.ObjectMap $ M.fromList [
       (Msg.ObjectString "Name", Msg.ObjectString $ encodeUtf8 name),
-      (Msg.ObjectString "Dist", Msg.ObjectArray $ map Msg.ObjectDouble [weight, min, max, sum, sum_2])
+      (Msg.ObjectString "Dist", Msg.ObjectArray $
+        map Msg.ObjectDouble [weight, min, max, sum, sum_2])
     ]
 
 newStagger :: StaggerOpts -> IO Stagger
 newStagger opts = do
-  counts <- newTVarIO (return HM.empty)
-  dists <- newTVarIO mempty
+  counts <- STM.newTVarIO (return HM.empty)
+  dists <- STM.newTVarIO mempty
   let stagger = Stagger counts dists
   forkIO $ staggerThread stagger
-  return $ stagger
+  return stagger
  where
   sendRegistration :: NS.Socket -> IO ()
   sendRegistration sock = do
@@ -122,7 +122,7 @@ newStagger opts = do
     return ()
 
   staggerThread :: Stagger -> IO ()
-  staggerThread (Stagger counts dists) = do
+  staggerThread (Stagger counts dists) =
     withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
       sendRegistration sock
       flip State.evalStateT HM.empty $ while $ do
@@ -130,7 +130,7 @@ newStagger opts = do
         case command of
           Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do
             prevCumulatives <- State.get
-            newCountValues <- liftIO $ join $ atomically $ readTVar counts
+            newCountValues <- liftIO $ join $ atomically $ STM.readTVar counts
             let newCumulatives = mapMaybeHashMap getCumulative newCountValues
             State.put $ HM.union newCumulatives prevCumulatives
 
@@ -138,7 +138,7 @@ newStagger opts = do
             let newCurrents = mapMaybeHashMap getCurrent newCountValues
             let counts = HM.union newCurrents $ HM.map fromIntegral diff
 
-            dists' <- liftIO $ atomically $ readTVar dists
+            dists' <- liftIO $ atomically $ STM.readTVar dists
             dists'' <- liftIO $ sequence dists'
             let dists''' = mapMaybeHashMap id dists''
 
@@ -156,7 +156,7 @@ newStagger opts = do
 newDistMetric :: Stagger -> MetricName -> IO Dist
 newDistMetric (Stagger _ dists) name = do
   dist <- newDist
-  atomically $ modifyTVar' dists $ HM.insert name $ getAndReset dist
+  atomically $ STM.modifyTVar' dists $ HM.insert name $ Dist.getAndReset dist
   return dist
 
 newRateCounter :: Stagger -> MetricName -> IO Counter
@@ -184,5 +184,5 @@ registerCount stagger name op =
   registerCounts stagger $ HM.singleton name <$> op
 
 registerCounts :: Stagger -> IO (HM.HashMap MetricName Count) -> IO ()
-registerCounts (Stagger counts _) op = do
-  atomically $ modifyTVar' counts (\op' -> HM.union <$> op <*> op')
+registerCounts (Stagger counts _) op =
+  atomically $ STM.modifyTVar' counts (\op' -> HM.union <$> op <*> op')
