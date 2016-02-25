@@ -1,6 +1,4 @@
 flags: {}
 packages:
 - '.'
-extra-deps:
-- messagepack-0.5.0
-resolver: lts-4.1
+resolver: lts-5.4
