@@ -1,5 +1,5 @@
 name:                stagger-haskell
-version:             0.2.0.1
+version:             0.2.0.2
 synopsis:            Stagger reporter client in Haskell.
 description:         Stagger reporter client in Haskell.
 license:             BSD3
