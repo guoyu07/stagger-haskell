@@ -1,5 +1,5 @@
 name:                stagger-haskell
-version:             0.2.0.1
+version:             0.2.0.2
 synopsis:            Stagger reporter client in Haskell.
 description:         Stagger reporter client in Haskell.
 license:             BSD3
@@ -13,10 +13,10 @@ library
   build-depends:       base                 == 4.*,
                        blaze-builder        == 0.4.*,
                        bytestring,
-                       cereal               >= 0.4,
+                       cereal               >= 0.4     && < 0.6,
                        containers,
                        deepseq,
-                       errors               >= 1.4     && < 2.1,
+                       errors               >= 1.4     && < 2.2,
                        hashable             == 1.2.*,
                        messagepack          == 0.5.*,
                        mtl,
