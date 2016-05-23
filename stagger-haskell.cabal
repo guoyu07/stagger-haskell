@@ -17,6 +17,7 @@ library
                        containers,
                        deepseq,
                        errors               >= 1.4     && < 2.2,
+                       extra                == 1.4.*,
                        hashable             == 1.2.*,
                        messagepack          == 0.5.*,
                        mtl,

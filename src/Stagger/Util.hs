@@ -45,8 +45,3 @@ withRetryingResource setup cleanup action =
  where
   handler :: IOException -> IO ()
   handler e = return ()
-
-while :: Monad m => m Bool -> m ()
-while action = do
-  result <- action
-  when result $ while action
