@@ -20,6 +20,7 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (TVar, atomically)
 import Control.Monad (forever, join)
+import Control.Monad.Extra (whileM)
 import Control.Monad.Trans (liftIO)
 import Data.Monoid (Monoid(..))
 import Data.Semigroup (Sum(..), Max(..), Min(..))
@@ -31,7 +32,7 @@ import Prelude hiding (sequence)
 import Stagger.Counter (Counter, incCounter, newCounter, readCounter)
 import Stagger.Dist (DistValue(DistValue), Dist, newDist)
 import Stagger.SocketUtil (recvMessage, withSocket)
-import Stagger.Util (mapMaybeHashMap, while)
+import Stagger.Util (mapMaybeHashMap)
 
 import qualified Control.Concurrent.STM as STM
 import qualified Control.Monad.Trans.State as State
@@ -125,7 +126,7 @@ newStagger opts = do
   staggerThread (Stagger counts dists) =
     withSocket (staggerHost opts) (staggerPort opts) $ \sock -> do
       sendRegistration sock
-      flip State.evalStateT HM.empty $ while $ do
+      flip State.evalStateT HM.empty $ whileM $ do
         command <- recvMessage sock
         case command of
           Right (Protocol.ReportAllMessage (Protocol.ReportAll ts)) -> do

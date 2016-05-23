@@ -3,6 +3,7 @@ module Stagger.Counter (
   newCounter,
   incCounter,
   readCounter,
+  setCounter
 ) where
 
 import Control.Applicative ((<$>), (<*>))
@@ -24,6 +25,13 @@ decCounter (Counter c) =
 incCounter :: Counter -> IO ()
 incCounter (Counter c) =
   atomicModifyIORefNF c ((+1) &&& const ())
+
+-- | Sets the counter value. This is only ever useful with a 'Current'
+-- counter. Unfortunately, there is no easy way to enforce that at the type
+-- level at the time being.
+setCounter :: Counter -> Integer -> IO ()
+setCounter (Counter c) n =
+  atomicModifyIORefNF c (const (n, ()))
 
 readCounter :: Counter -> IO Integer
 readCounter (Counter c) =
